@@ -9,6 +9,7 @@ const PORT = process.env.PORT || 10000;
 const app = express();
 let discordReady = false;
 let lastForwardAt = null;
+let lastReplyAt = null;
 let lastError = null;
 
 app.get('/', (_req, res) => {
@@ -18,6 +19,7 @@ app.get('/', (_req, res) => {
     discordReady,
     targetChannel: CHANNEL_ID,
     lastForwardAt,
+    lastReplyAt,
     lastError,
   });
 });
@@ -58,6 +60,22 @@ client.on('error', (err) => {
   console.error('Discord client error:', lastError);
 });
 
+function splitDiscordMessage(text, max = 2000) {
+  const chunks = [];
+  let remaining = text;
+
+  while (remaining.length > max) {
+    let cut = remaining.lastIndexOf('\n', max);
+    if (cut < max * 0.5) cut = remaining.lastIndexOf(' ', max);
+    if (cut < max * 0.5) cut = max;
+    chunks.push(remaining.slice(0, cut).trim());
+    remaining = remaining.slice(cut).trim();
+  }
+
+  if (remaining) chunks.push(remaining);
+  return chunks;
+}
+
 client.on('messageCreate', async (message) => {
   try {
     if (message.author.bot) return;
@@ -86,17 +104,27 @@ client.on('messageCreate', async (message) => {
       body: JSON.stringify(payload),
     });
 
+    const responseBody = await response.text();
+
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Make webhook ${response.status}: ${body}`);
+      throw new Error(`Make webhook ${response.status}: ${responseBody}`);
     }
 
     lastForwardAt = new Date().toISOString();
     lastError = null;
     console.log(`Forwarded Discord message ${message.id} to Make`);
+
+    const replyText = responseBody.trim();
+    if (replyText) {
+      for (const chunk of splitDiscordMessage(replyText)) {
+        await message.channel.send(chunk);
+      }
+      lastReplyAt = new Date().toISOString();
+      console.log(`Replied to Discord message ${message.id} as ${client.user.tag}`);
+    }
   } catch (err) {
     lastError = err?.message || String(err);
-    console.error('Forward failed:', lastError);
+    console.error('Forward/reply failed:', lastError);
   }
 });
 
