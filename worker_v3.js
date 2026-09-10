@@ -3,7 +3,7 @@
 import baseWorker from './worker_v2.js';
 
 const DISCORD_API = 'https://discord.com/api/v10';
-const VERSION = '3.2.1-worker-news-fallback';
+const VERSION = '3.2.2-worker-bing-news-fallback';
 const encoder = new TextEncoder();
 const clean = (v, max = 1800) => String(v || '').replace(/\u0000/g, '').slice(0, max);
 const json = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -25,9 +25,7 @@ async function verifyDiscordRequest(request, body, publicKeyHex) {
   try {
     const key = await crypto.subtle.importKey('raw', hexToBytes(publicKeyHex), { name: 'Ed25519' }, false, ['verify']);
     return await crypto.subtle.verify('Ed25519', key, hexToBytes(signature), encoder.encode(timestamp + body));
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 function decodeXml(s) {
@@ -40,95 +38,62 @@ function parseTag(xml, tag) {
   const m = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i'));
   return decodeXml(m?.[1] || '').replace(/<[^>]*>/g, '').trim();
 }
-function decodeHtml(s) {
-  return String(s || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ');
-}
-function stripHtml(s) {
-  return decodeHtml(String(s || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+function parseRss(xml, sourceFallback) {
+  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
+    .slice(0, 10)
+    .map((m) => ({
+      title: clean(parseTag(m[1], 'title'), 300),
+      url: parseTag(m[1], 'link'),
+      date: parseTag(m[1], 'pubDate'),
+      source: parseTag(m[1], 'source') || sourceFallback,
+    }))
+    .filter((x) => x.title && /^https?:\/\//.test(x.url));
 }
 
 async function fetchGoogleNews(query, locale) {
   const u = new URL('https://news.google.com/rss/search');
   u.search = new URLSearchParams({ q: clean(query, 120), ...locale }).toString();
   const r = await fetch(u, {
-    headers: {
-      'user-agent': 'Mozilla/5.0 (compatible; RuruBot/3.2)',
-      'accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
-    },
+    headers: { 'user-agent': 'Mozilla/5.0 (compatible; RuruBot/3.2)', 'accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8' },
     signal: AbortSignal.timeout(10000),
   });
   if (!r.ok) throw new Error(`GoogleNews ${r.status}`);
-  const xml = await r.text();
-  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
-    .slice(0, 8)
-    .map((m) => ({
-      title: clean(parseTag(m[1], 'title'), 300),
-      url: parseTag(m[1], 'link'),
-      date: parseTag(m[1], 'pubDate'),
-      source: parseTag(m[1], 'source'),
-    }))
-    .filter((x) => x.title && /^https:\/\//.test(x.url));
+  return parseRss(await r.text(), 'Google News');
 }
 
-async function fallbackWebNews(query) {
-  const r = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-    headers: { 'user-agent': 'Mozilla/5.0 (compatible; RuruBot/3.2)' },
-    signal: AbortSignal.timeout(12000),
+async function fetchBingNews(query) {
+  const u = new URL('https://www.bing.com/news/search');
+  u.search = new URLSearchParams({ q: clean(query, 120), format: 'rss', setlang: 'en-US' }).toString();
+  const r = await fetch(u, {
+    headers: { 'user-agent': 'Mozilla/5.0 (compatible; RuruBot/3.2)', 'accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8' },
+    signal: AbortSignal.timeout(10000),
   });
-  if (!r.ok) return [];
-  const html = await r.text();
-  const records = [];
-  for (const m of html.matchAll(/<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)) {
-    let href = decodeHtml(m[1]);
-    try {
-      const u = new URL(href, 'https://duckduckgo.com');
-      const x = u.searchParams.get('uddg');
-      if (x) href = decodeURIComponent(x);
-    } catch {}
-    if (!/^https?:\/\//i.test(href)) continue;
-    records.push({ title: clean(stripHtml(m[2]), 300), url: clean(href, 1000), date: '', source: 'Web検索' });
-    if (records.length >= 8) break;
-  }
-  return records;
+  if (!r.ok) throw new Error(`BingNews ${r.status}`);
+  return parseRss(await r.text(), 'Bing News');
 }
 
 async function searchNews(query) {
   const errors = [];
   const attempts = [
-    { hl: 'ja', gl: 'JP', ceid: 'JP:ja' },
-    { hl: 'en-US', gl: 'US', ceid: 'US:en' },
+    async () => fetchGoogleNews(query, { hl: 'ja', gl: 'JP', ceid: 'JP:ja' }),
+    async () => fetchGoogleNews(query, { hl: 'en-US', gl: 'US', ceid: 'US:en' }),
+    async () => fetchBingNews(query),
   ];
-  for (const locale of attempts) {
+  for (const attempt of attempts) {
     try {
-      const records = await fetchGoogleNews(query, locale);
-      if (records.length) {
-        return {
-          type: 'news', status: 'ok', checked_at: new Date().toISOString(), records,
-          note: 'Google News RSSの見出し・配信元・日時・URLです。記事本文は未確認です。',
-        };
-      }
+      const records = await attempt();
+      if (records.length) return {
+        type: 'news', status: 'ok', checked_at: new Date().toISOString(), records,
+        note: 'ニュースRSSの見出し・配信元・日時・URLです。記事本文は未確認です。',
+      };
     } catch (e) {
       errors.push(clean(e?.message || String(e), 200));
     }
   }
-
-  try {
-    const records = await fallbackWebNews(`${query} latest news Reuters Bloomberg CNBC`);
-    return {
-      type: 'news',
-      status: records.length ? 'fallback' : 'empty',
-      checked_at: new Date().toISOString(),
-      records,
-      errors,
-      note: records.length
-        ? 'Google News RSS取得に失敗したため一般Web検索へ切り替えました。タイトルとURLを根拠に回答してください。'
-        : 'ニュース検索元から結果を取得できませんでした。',
-    };
-  } catch (e) {
-    errors.push(clean(e?.message || String(e), 200));
-    return { type: 'news', status: 'error', checked_at: new Date().toISOString(), records: [], errors, note: 'ニュース取得に失敗しました。' };
-  }
+  return {
+    type: 'news', status: 'empty', checked_at: new Date().toISOString(), records: [], errors,
+    note: '複数のニュース取得元を確認しましたが結果を取得できませんでした。',
+  };
 }
 
 async function askMake(env, base, packet) {
@@ -152,8 +117,8 @@ function isNewsQuery(q) {
   return /ニュース|報道|記事|ヘッドライン|FRB|FOMC|パウエル|NASDAQ|ナスダック|米国株|利下げ|利上げ|金利.*(発言|報道|ニュース)|今週.*(出来事|材料)/i.test(q);
 }
 function makeNewsQuery(q) {
-  if (/FRB|FOMC|パウエル/i.test(q)) return 'FRB FOMC Powell interest rates';
-  if (/NASDAQ|ナスダック/i.test(q)) return 'NASDAQ stocks Federal Reserve interest rates';
+  if (/FRB|FOMC|パウエル/i.test(q)) return 'Federal Reserve FOMC Powell interest rates';
+  if (/NASDAQ|ナスダック/i.test(q)) return 'NASDAQ Federal Reserve interest rates';
   return clean(q.replace(/これが通ったら[\s\S]*$/i, '').trim(), 120);
 }
 
