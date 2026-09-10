@@ -1,8 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "ruru-discord-worker",
-  "main": "worker_v8.js",
+  "name": "ruru-discord-bot",
+  "main": "worker_v9.js",
   "compatibility_date": "2026-09-10",
+  "secrets": {
+    "required": [
+      "DISCORD_PUBLIC_KEY",
+      "DISCORD_BOT_TOKEN",
+      "MAKE_WEBHOOK_URL"
+    ]
+  },
   "observability": {
     "enabled": true
   }
