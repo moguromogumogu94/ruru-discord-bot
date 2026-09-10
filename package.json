@@ -1,11 +1,11 @@
 {
   "name": "ruru-discord-bot",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
-  "description": "Discord AI secretary with /るる command and web search",
-  "main": "slash3.js",
+  "description": "Discord AI secretary with automatic server, web and weather search",
+  "main": "slash4.js",
   "scripts": {
-    "start": "node slash3.js"
+    "start": "node slash4.js"
   },
   "engines": {
     "node": ">=20"
