@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ruru-discord-worker",
-  "main": "worker_v4.js",
+  "main": "worker_v5.js",
   "compatibility_date": "2026-09-10",
   "observability": {
     "enabled": true
