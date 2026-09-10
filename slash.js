@@ -14,7 +14,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL;
 const LEGACY_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID || '1546475931411943466';
 const PORT = process.env.PORT || 10000;
-const VERSION = '2.1.0-slash-ruru';
+const VERSION = '2.2.0-freeform-ruru';
 
 if (!BOT_TOKEN || !MAKE_WEBHOOK_URL) {
   console.error('Missing DISCORD_BOT_TOKEN or MAKE_WEBHOOK_URL');
@@ -294,7 +294,7 @@ async function answerQuestion(channel, member, question, messageId = null) {
   if (tool) {
     answer = await askMake(base, { ...packet, phase: 'answer', tool_result: result });
     if (parseTool(answer)) {
-      answer = 'すみません。確認結果をうまく整理できませんでした。質問を少し具体的にして、もう一度お願いします。';
+      answer = 'すみません。確認結果をうまく整理できませんでした。メッセージを少し具体的にして、もう一度お願いします。';
     }
   }
 
@@ -306,12 +306,12 @@ async function answerQuestion(channel, member, question, messageId = null) {
 async function registerSlashCommands() {
   const definition = {
     name: 'るる',
-    description: 'AI秘書るるに質問します',
+    description: 'AI秘書るるに自由に話しかけます',
     type: ApplicationCommandType.ChatInput,
     options: [
       {
-        name: 'しつもん',
-        description: 'るるに聞きたいこと',
+        name: 'メッセージ',
+        description: '質問・相談・雑談・要約など、自由に入力してください',
         type: ApplicationCommandOptionType.String,
         required: true,
       },
@@ -355,12 +355,14 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    const question = interaction.options.getString('しつもん', true);
-    const answer = await answerQuestion(channel, member, question, null);
+    const userMessage = interaction.options.getString('メッセージ', true).trim();
+    const answer = await answerQuestion(channel, member, userMessage, null);
+    const displayName = member.displayName || interaction.user.globalName || interaction.user.username;
+    const visibleConversation = `**${clean(displayName, 80)}：** ${clean(userMessage, 1000)}\n\n${answer}`;
 
-    const first = answer.slice(0, 1900);
+    const first = visibleConversation.slice(0, 1900);
     await interaction.editReply(first);
-    let rest = answer.slice(1900).trim();
+    let rest = visibleConversation.slice(1900).trim();
     while (rest) {
       await interaction.followUp({ content: rest.slice(0, 1900), allowedMentions: { parse: [] } });
       rest = rest.slice(1900).trim();
