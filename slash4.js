@@ -9,7 +9,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL;
 const LEGACY_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID || '1546475931411943466';
 const PORT = process.env.PORT || 10000;
-const VERSION = '2.4.0-auto-fresh-search';
+const VERSION = '2.4.1-weather-location-fix';
 if (!BOT_TOKEN || !MAKE_WEBHOOK_URL) process.exit(1);
 
 const app = express();
@@ -93,9 +93,22 @@ async function searchWeb(query,question){
 }
 
 function inferPlace(q){
-  const patterns=[/([一-龥ぁ-んァ-ヶA-Za-z]+?)(?:の)?(?:天気|気温|降水|雨|雪)/,/(?:天気|気温|降水|雨|雪).{0,8}(?:は|の)?([一-龥ぁ-んァ-ヶA-Za-z]+?)(?:[？?、。]|$)/];
-  for(const p of patterns){const m=q.match(p);if(m?.[1]&&m[1].length<=20)return m[1].replace(/^(今日|明日|あした|週末|今週|来週)/,'');}
-  if(/東京/.test(q))return '東京'; if(/札幌/.test(q))return '札幌'; if(/大阪/.test(q))return '大阪'; return null;
+  const s=String(q||'').replace(/\s+/g,'');
+  const known=['東京','札幌','大阪','名古屋','福岡','仙台','横浜','京都','神戸','広島','那覇','沖縄','千葉','さいたま','川崎','新潟','金沢','長野','静岡','浜松','岡山','熊本','鹿児島','函館','旭川'];
+  const hit=known.find(name=>s.includes(name));
+  if(hit) return hit;
+
+  const before=(s.split(/(?:天気|気温|降水|雨|雪)/)[0]||'')
+    .replace(/[？?、。！!]/g,'')
+    .replace(/^(?:今日|きょう|明日|あした|明後日|あさって|今週|週末|来週|今|現在)/,'')
+    .replace(/(?:今日|きょう|明日|あした|明後日|あさって|今週|週末|来週|今|現在)$/,'');
+  const parts=before.split(/(?:から|まで|にかけて|について|で|は|の)/).map(x=>x.trim()).filter(Boolean);
+  const candidate=parts.at(-1);
+  if(candidate && candidate.length<=20 && !/^(今日|きょう|明日|あした|明後日|あさって|今週|週末|来週)$/.test(candidate)) return candidate;
+
+  const after=s.match(/(?:天気|気温|降水|雨|雪).{0,12}(?:は|の)?([一-龥ぁ-んァ-ヶA-Za-z]+?)(?:[？?、。]|$)/);
+  if(after?.[1]&&after[1].length<=20)return after[1];
+  return null;
 }
 async function searchWeather(question){
   const place=inferPlace(question)||'東京';
