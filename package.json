@@ -1,11 +1,12 @@
 {
   "name": "ruru-discord-bot",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
-  "description": "Discord AI secretary with /るる, server search, web search and weather",
+  "description": "Discord AI secretary with Render gateway runtime and Cloudflare Workers HTTP runtime",
   "main": "slash5.js",
   "scripts": {
-    "start": "node slash5.js"
+    "start": "node slash5.js",
+    "deploy:worker": "wrangler deploy"
   },
   "engines": {
     "node": ">=20"
@@ -13,5 +14,8 @@
   "dependencies": {
     "discord.js": "^14.22.1",
     "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
   }
 }
