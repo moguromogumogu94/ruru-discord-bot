@@ -1,11 +1,11 @@
 {
   "name": "ruru-discord-bot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "Realtime Discord Gateway listener for るる AI secretary",
-  "main": "index.js",
+  "description": "Discord AI secretary with /るる command",
+  "main": "slash.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node slash.js"
   },
   "engines": {
     "node": ">=20"
